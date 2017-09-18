@@ -18,3 +18,4 @@ My main goals are:
 - epochTime() is the only platform specific date/time functions in use.
 - dealing with timezone offsets is the responsibility of the user of this module. it allows you to store an offset to UTC and a DST flag but no attempt is made to detect these things from the running platform.
 - hopefully correct implementation of the used algorithms.
+- it should run both on the c and the js backend

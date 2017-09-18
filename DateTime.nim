@@ -34,13 +34,15 @@ type TimeDelta* = object
   microseconds*: int
 
 type TimeInterval* = object ## a time interval
-  years*: float64       ## The number of years
-  months*: float64      ## The number of months
-  days*: float64        ## The number of days
-  hours*: float64       ## The number of hours
-  minutes*: float64     ## The number of minutes
-  seconds*: float64     ## The number of seconds
+  years*: float64        ## The number of years
+  months*: float64       ## The number of months
+  days*: float64         ## The number of days
+  hours*: float64        ## The number of hours
+  minutes*: float64      ## The number of minutes
+  seconds*: float64      ## The number of seconds
   microseconds*: float64 ## The number of microseconds
+  calculated: bool       ## to indicate if TimeInterval was manually set
+                         ## or caculated internally
 
 type TimeStamp* = object
   seconds*: float64
@@ -50,7 +52,7 @@ type TimeStamp* = object
 proc ifloor*[T](n: T): int =
   ## Return the whole part of m/n.
   # from math import floor
-  return floor(n.float64).int
+  return int(floor(n.float64))
 
 
 proc quotient*[T, U](m: T, n:U): int =
@@ -60,222 +62,6 @@ proc quotient*[T, U](m: T, n:U): int =
 
 proc modulo*[T, U](x: T, y: U): U =
   return x.U - quotient(x.U, y.U).U * y
-
-proc fromTimeStamp*(ts: TimeStamp): DateTime {.gcsafe.}
-proc toTimeStamp*(dt: DateTime): TimeStamp {.gcsafe.}
-
-
-proc initDateTime*(year, month, day, hour, minute, second, microsecond: int = 0;
-                   utcoffset: int = 0, isDST: bool = false, offsetKnown = false): DateTime =
-  result.year = year
-  result.month = month
-  result.day = day
-  result.hour = hour
-  result.minute = minute
-  result.second = second
-  result.microsecond = microsecond
-  result.utcoffset = utcoffset
-  result.isDST = isDST
-  result.offsetKnown = offsetKnown
-  result = fromTimeStamp(toTimeStamp(result))
-
-
-proc initTimeDelta*(days, hours, minutes, seconds, microseconds: float64 = 0): TimeDelta =
-  var s: float64 = 0.0
-  s += days * OneDay
-  s += hours * 3600
-  s += minutes * 60
-  s += seconds
-  s += microseconds / 1e6
-  result.days = quotient(s, OneDay.float64)
-  result.seconds = int(s - float64(OneDay.float64 * result.days.float64))
-  result.microseconds = int(round(modulo(s, 1.0) * 1e6))
-
-
-proc initTimeStamp*(days, hours, minutes, seconds, microseconds: float64 = 0): TimeStamp =
-  var s: float64 = 0.0
-  s += days * OneDay
-  s += hours * 3600
-  s += minutes * 60
-  s += seconds
-  s += microseconds / 1e6
-  result.seconds = int(s).float64
-  result.microseconds = round(modulo(s, 1.0) * 1e6)
-
-proc initTimeInterval*(years, months, days, hours, seconds, minutes, microseconds: float64 = 0): TimeInterval =
-  ## creates a new ``TimeInterval``.
-  ##
-  ## You can also use the convenience procedures called ``microseconds``,
-  ## ``seconds``, ``minutes``, ``hours``, ``days``, ``months``, and ``years``.
-  ##
-  ## Example:
-  ##
-  ## .. code-block:: nim
-  ##
-  ##     let day = initInterval(hours=24
-  ##     let tomorrow = now() + day
-  ##     echo(tomorrow)
-  ##
-  var carry: float64 = 0
-  result.microseconds = modulo(microseconds, 1e6)
-  carry = quotient(microseconds, 1e6).float64
-  result.seconds = modulo(carry + seconds, 60).float64
-  carry = quotient(carry + seconds, 60).float64
-  result.minutes = modulo(carry + minutes, 60).float64
-  carry = quotient(carry + minutes, 60).float64
-  result.hours = modulo(carry + hours, 24).float64
-  carry = quotient(carry + hours, 24).float64
-  result.days = carry + days
-  result.months = modulo(months, 12).float64
-  carry = quotient(months, 12).float64
-  result.years = carry + years
-
-
-proc `+`*(ti1, ti2: TimeInterval): TimeInterval =
-  ## Adds two ``TimeInterval`` objects together.
-  ##
-  var carry: BiggestFloat = 0
-  var sm: BiggestFloat = 0
-  sm = ti1.microseconds + ti2.microseconds
-  result.microseconds = modulo(sm, 1e6)
-  carry = quotient(sm, 1e6).float64
-  sm = carry + ti1.seconds + ti2.seconds
-  result.seconds = modulo(sm, 60).float64
-  carry = quotient(sm, 60).float64
-  sm = carry + ti1.minutes + ti2.minutes
-  result.minutes = modulo(sm, 60).float64
-  carry = quotient(sm, 60).float64
-  sm = carry + ti1.hours + ti2.hours
-  result.hours = modulo(sm, 24).float64
-  carry = quotient(sm, 24).float64
-  result.days = carry + ti1.days + ti2.days
-  sm = ti1.months + ti2.months
-  result.months = modulo(sm, 12).float64
-  carry = quotient(sm, 12).float64
-  result.years = carry + ti1.years + ti2.years
-
-
-proc `<`(x, y: TimeInterval): bool =
-  let xs:float64 = x.years * 366 * 86400 + x.months * 31 * 86400 +
-           x.days * 86400 + x. hours * 3600 + x.minutes * 60 +
-           x.seconds + float64(quotient(x.microseconds.float64, 1e6))
-  let ys:float64 = y.years * 366 * 86400 + y.months * 31 * 86400 +
-           y.days * 86400 + y. hours * 3600 + y.minutes * 60 +
-           y.seconds + float64(quotient(y.microseconds.float64, 1e6))
-  result = xs < ys
-
-
-proc `-`*(ti: TimeInterval): TimeInterval =
-  ## returns a new `TimeInterval` instance with
-  ## all its values negated.
-  ##
-  result = TimeInterval(
-    years: -ti.years,
-    months: -ti.months,
-    days: -ti.days,
-    hours: -ti.hours,
-    minutes: -ti.minutes,
-    seconds: -ti.seconds,
-    microseconds: -ti.microseconds,
-  )
-
-
-proc `-`*(ts: TimeStamp): TimeStamp =
-  ## returns a new `TimeStamp` instance
-  ## with all its values negated.
-  ##
-  result = TimeStamp(seconds: -ts.seconds,
-                     microseconds: -ts.microseconds)
-
-
-proc `-`*(ti1, ti2: TimeInterval): TimeInterval =
-  ## Subtracts TimeInterval ``ti2`` from ``ti1``.
-  ##
-  ## Time components are compared one-by-one, see output:
-  ##
-  ## .. code-block:: nim
-  ##     let a = fromUnixEpochSeconds(1_000_000_000)
-  ##     let b = fromUnixEpochSeconds(1_500_000_000)
-  ##     echo b.toTimeInterval - a.toTimeInterval
-  ##     # (years: 15, months: 10, days: 5, hours: 0, minutes: 53, seconds: 20, microseconds: 0)
-  ##
-  var swapped = false
-  var (ti1, ti2) = (ti1, ti2)
-  if ti1 < ti2:
-    swap(ti1, ti2)
-    swapped = true
-  result = ti1 + (-ti2)
-  if swapped:
-    result = -result
-
-
-proc microseconds*(ms: int): TimeInterval {.inline.} =
-  ## TimeInterval of `ms` microseconds
-  ##
-  initTimeInterval(microseconds = ms.float64)
-
-
-proc seconds*(s: int): TimeInterval {.inline.} =
-  ## TimeInterval of `s` seconds
-  ##
-  ## ``echo now() + 5.second``
-  initTimeInterval(seconds = s.float64)
-
-
-proc minutes*(m: int): TimeInterval {.inline.} =
-  ## TimeInterval of `m` minutes
-  ##
-  ## ``echo now() + 5.minutes``
-  initTimeInterval(minutes = m.float64)
-
-
-proc hours*(h: int): TimeInterval {.inline.} =
-  ## TimeInterval of `h` hours
-  ##
-  ## ``echo now() + 2.hours``
-  initTimeInterval(hours = h.float64)
-
-
-proc days*(d: int): TimeInterval {.inline.} =
-  ## TimeInterval of `d` days
-  ##
-  ## ``echo now() + 2.days``
-  initTimeInterval(days = d.float64)
-
-
-proc months*(m: int): TimeInterval {.inline.} =
-  ## TimeInterval of `m` months
-  ##
-  ## ``echo now() + 2.months``
-  initTimeInterval(months = m.float64)
-
-
-proc years*(y: int): TimeInterval {.inline.} =
-  ## TimeInterval of `y` years
-  ##
-  ## ``echo now() + 2.years``
-  initTimeInterval(years = y.float64)
-
-
-proc totalSeconds*(td: TimeDelta): float64 =
-  ## the value of `td` Time difference
-  ## expressed as fractional seconds
-  ##
-  result = float64(td.days * OneDay)
-  result += float64(td.seconds)
-  result += float64(td.microseconds) / 1e6
-
-
-proc toTimeStamp*(td: TimeDelta): TimeStamp =
-  ## converts `td` Time difference into
-  ## a TimeStamp with values seconds and
-  ## microseconds. Needed because 64bit
-  ## floats have not enough precision to
-  ## represet microsecond time resolution.
-  ##
-  result.seconds = float64(td.days * OneDay)
-  result.seconds += td.seconds.float64
-  result.microseconds = td.microseconds.float64
 
 
 proc `$`*(dt: DateTime): string =
@@ -341,6 +127,25 @@ proc `$`*(td: TimeDelta): string =
     result.add(align($td.microseconds,6,'0'))
 
 
+proc `$`*(ti: TimeInterval): string =
+  ## string representation of a TimeInterval
+  result = ""
+  result.add("years: ")
+  result.add($ti.years.int)
+  result.add(", months: ")
+  result.add($ti.months.int)
+  result.add(", days: ")
+  result.add($ti.days.int)
+  result.add(", hours: ")
+  result.add($ti.hours.int)
+  result.add(", minutes: ")
+  result.add($ti.minutes.int)
+  result.add(", seconds: ")
+  result.add($ti.seconds.int)
+  result.add(", microseconds: ")
+  result.add($ti.microseconds.int)
+
+
 proc `$`*(isod: ISOWeekDate): string =
   ## the string representation of the so called
   ## ISO Week Date format. The four digit year
@@ -356,6 +161,228 @@ proc `$`*(isod: ISOWeekDate): string =
   result.add(intToStr(isod.week, 2))
   result.add("-")
   result.add($isod.weekday)
+
+
+proc fromTimeStamp*(ts: TimeStamp): DateTime {.gcsafe.}
+proc toTimeStamp*(dt: DateTime): TimeStamp {.gcsafe.}
+
+
+proc initDateTime*(year, month, day, hour, minute, second, microsecond: int = 0;
+                   utcoffset: int = 0, isDST: bool = false, offsetKnown = false): DateTime =
+  result.year = year
+  result.month = month
+  result.day = day
+  result.hour = hour
+  result.minute = minute
+  result.second = second
+  result.microsecond = microsecond
+  result.utcoffset = utcoffset
+  result.isDST = isDST
+  result.offsetKnown = offsetKnown
+  result = fromTimeStamp(toTimeStamp(result))
+
+
+proc initTimeDelta*(days, hours, minutes, seconds, microseconds: float64 = 0): TimeDelta =
+  var s: float64 = 0.0
+  s += days * OneDay
+  s += hours * 3600
+  s += minutes * 60
+  s += seconds
+  s += microseconds / 1e6
+  result.days = quotient(s, OneDay.float64)
+  result.seconds = int(s - float64(OneDay.float64 * result.days.float64))
+#  result.microseconds = int(round(modulo(s, 1.0) * 1e6))
+  if microseconds != 0:
+    result.microseconds = int(microseconds)
+
+
+proc initTimeStamp*(days, hours, minutes, seconds, microseconds: float64 = 0): TimeStamp =
+  var s: float64 = 0.0
+  s += days * OneDay
+  s += hours * 3600
+  s += minutes * 60
+  s += seconds
+  s += microseconds / 1e6
+  result.seconds = int(s).float64
+  result.microseconds = round(modulo(s, 1.0) * 1e6)
+
+
+proc initTimeInterval*(years, months, days, hours, seconds, minutes, microseconds: float64 = 0, calculated = false): TimeInterval =
+  ## creates a new ``TimeInterval``.
+  ##
+  ## You can also use the convenience procedures called ``microseconds``,
+  ## ``seconds``, ``minutes``, ``hours``, ``days``, ``months``, and ``years``.
+  ##
+  ## Example:
+  ##
+  ## .. code-block:: nim
+  ##
+  ##     let day = initInterval(hours=24
+  ##     let tomorrow = now() + day
+  ##     echo(tomorrow)
+  ##
+  var carry: float64 = 0
+  result.microseconds = modulo(microseconds, 1e6)
+  carry = quotient(microseconds, 1e6).float64
+  result.seconds = modulo(carry + seconds, 60).float64
+  carry = quotient(carry + seconds, 60).float64
+  result.minutes = modulo(carry + minutes, 60).float64
+  carry = quotient(carry + minutes, 60).float64
+  result.hours = modulo(carry + hours, 24).float64
+  carry = quotient(carry + hours, 24).float64
+  result.days = carry + days
+  result.months = modulo(months, 12).float64
+  carry = quotient(months, 12).float64
+  result.years = carry + years
+  result.calculated = calculated
+
+
+proc `+`*(ti1, ti2: TimeInterval): TimeInterval =
+  ## Adds two ``TimeInterval`` objects together.
+  ##
+  var carry: BiggestFloat = 0
+  var sm: BiggestFloat = 0
+  sm = ti1.microseconds + ti2.microseconds
+  result.microseconds = modulo(sm, 1e6)
+  carry = quotient(sm, 1e6).float64
+  sm = carry + ti1.seconds + ti2.seconds
+  result.seconds = modulo(sm, 60).float64
+  carry = quotient(sm, 60).float64
+  sm = carry + ti1.minutes + ti2.minutes
+  result.minutes = modulo(sm, 60).float64
+  carry = quotient(sm, 60).float64
+  sm = carry + ti1.hours + ti2.hours
+  result.hours = modulo(sm, 24).float64
+  carry = quotient(sm, 24).float64
+  result.days = carry + ti1.days + ti2.days
+  sm = ti1.months + ti2.months
+  result.months = modulo(sm, 12).float64
+  carry = quotient(sm, 12).float64
+  result.years = carry + ti1.years + ti2.years
+
+
+proc `<`(x, y: TimeInterval): bool =
+  let xs:float64 = x.years * 366 * 86400 + x.months * 31 * 86400 +
+           x.days * 86400 + x. hours * 3600 + x.minutes * 60 +
+           x.seconds + float64(quotient(x.microseconds.float64, 1e6))
+  let ys:float64 = y.years * 366 * 86400 + y.months * 31 * 86400 +
+           y.days * 86400 + y. hours * 3600 + y.minutes * 60 +
+           y.seconds + float64(quotient(y.microseconds.float64, 1e6))
+  result = xs < ys
+
+
+proc `-`*(ti: TimeInterval): TimeInterval =
+  ## returns a new `TimeInterval` instance with
+  ## all its values negated.
+  ##
+  result = TimeInterval(
+    years: -ti.years,
+    months: -ti.months,
+    days: -ti.days,
+    hours: -ti.hours,
+    minutes: -ti.minutes,
+    seconds: -ti.seconds,
+    microseconds: -ti.microseconds,
+    calculated: ti.calculated
+  )
+
+
+proc `-`*(ts: TimeStamp): TimeStamp =
+  ## returns a new `TimeStamp` instance
+  ## with all its values negated.
+  ##
+  result = TimeStamp(seconds: -ts.seconds,
+                     microseconds: -ts.microseconds)
+
+
+proc `-`*(ti1, ti2: TimeInterval): TimeInterval =
+  ## Subtracts TimeInterval ``ti2`` from ``ti1``.
+  ##
+  ## Time components are compared one-by-one, see output:
+  ##
+  ## .. code-block:: nim
+  ##     let a = fromUnixEpochSeconds(1_000_000_000)
+  ##     let b = fromUnixEpochSeconds(1_500_000_000)
+  ##     echo b.toTimeInterval - a.toTimeInterval
+  ##     # (years: 15, months: 10, days: 5, hours: 0, minutes: 53, seconds: 20, microseconds: 0)
+  ##
+  var swapped = false
+  var (ti1, ti2) = (ti1, ti2)
+  if ti1 < ti2:
+    swap(ti1, ti2)
+    swapped = true
+  result = ti1 + (-ti2)
+  if swapped:
+    result = -result
+  result.calculated = true
+
+proc microseconds*(ms: int): TimeInterval {.inline.} =
+  ## TimeInterval of `ms` microseconds
+  ##
+  initTimeInterval(microseconds = ms.float64)
+
+
+proc seconds*(s: int): TimeInterval {.inline.} =
+  ## TimeInterval of `s` seconds
+  ##
+  ## ``echo now() + 5.second``
+  initTimeInterval(seconds = s.float64)
+
+
+proc minutes*(m: int): TimeInterval {.inline.} =
+  ## TimeInterval of `m` minutes
+  ##
+  ## ``echo now() + 5.minutes``
+  initTimeInterval(minutes = m.float64)
+
+
+proc hours*(h: int): TimeInterval {.inline.} =
+  ## TimeInterval of `h` hours
+  ##
+  ## ``echo now() + 2.hours``
+  initTimeInterval(hours = h.float64)
+
+
+proc days*(d: int): TimeInterval {.inline.} =
+  ## TimeInterval of `d` days
+  ##
+  ## ``echo now() + 2.days``
+  initTimeInterval(days = d.float64)
+
+
+proc months*(m: int): TimeInterval {.inline.} =
+  ## TimeInterval of `m` months
+  ##
+  ## ``echo now() + 2.months``
+  initTimeInterval(months = m.float64)
+
+
+proc years*(y: int): TimeInterval {.inline.} =
+  ## TimeInterval of `y` years
+  ##
+  ## ``echo now() + 2.years``
+  initTimeInterval(years = y.float64)
+
+
+proc totalSeconds*(td: TimeDelta): float64 =
+  ## the value of `td` Time difference
+  ## expressed as fractional seconds
+  ##
+  result = float64(td.days.float64 * OneDay.float64)
+  result += float64(td.seconds)
+  result += float64(td.microseconds) / 1e6
+
+
+proc toTimeStamp*(td: TimeDelta): TimeStamp =
+  ## converts `td` Time difference into
+  ## a TimeStamp with values seconds and
+  ## microseconds. Needed because 64bit
+  ## floats have not enough precision to
+  ## represet microsecond time resolution.
+  ##
+  result.seconds = float64(td.days.float64 * OneDay.float64)
+  result.seconds += td.seconds.float64
+  result.microseconds = td.microseconds.float64
 
 
 proc setUTCOffset*(dt: var DateTime; hours: int = 0, minutes: int = 0) =
@@ -617,6 +644,8 @@ proc getDaysInMonth*(month: int, year: int): int =
   of 4, 6, 9, 11: result = 30
   else: result = 31
 
+proc `+`*(dt: DateTime, td: TimeDelta): DateTime {.gcsafe.}
+proc `-`*(dt: DateTime, td: TimeDelta): DateTime {.gcsafe.}
 
 proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
   ## Calculates the number of fractional seconds the interval is worth
@@ -630,7 +659,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
   newinterv.months += ti.years * 12
   var curMonth = anew.month
 
-  result.seconds -= float64(anew.day * OneDay)
+  result.seconds -= float64((dt.day - 1) * OneDay)
   # now we are on day 1 of curMonth
 
   if newinterv.months < 0:   # subtracting
@@ -651,12 +680,18 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
         anew.year.inc()
       else:
         curMonth.inc()
-  # add the number of seconds we first subtracted back to get to anew.day in the current month
-  # we have to make sure that anew.day fits in the current month. if e.g. we startet on monthday 
-  # 31 and ended in a month with only 28 days we have to take the smaller of the two values to
-  # adjust the number of seconds.
-  result.seconds += float64(min(getDaysInMonth(curMonth, anew.year), anew.day) * OneDay)
-  
+
+  if not newinterv.calculated:
+    # add the number of seconds we first subtracted back to get to anew.day in the current month.
+    # if no days were set in the TimeInterval, we have to make sure that anew.day fits in the
+    # current month. if e.g. we startet on monthday 31 and ended in a month with only 28 days
+    # we have to take the smaller of the two values to adjust the number of seconds.
+
+    result.seconds += float64((min(getDaysInMonth(curMonth, anew.year), dt.day) - 1) * OneDay)
+  else:
+    # if a number of days was set in the timeinterval by an internal calculation,
+    # we don't adjust for the maximal day number in the target month.
+    result.seconds += float64((dt.day - 1) * OneDay)
   result.seconds += float64(newinterv.days.int * 24 * 60 * 60)
   result.seconds += float64(newinterv.hours.int * 60 * 60)
   result.seconds += float64(newinterv.minutes.int * 60)
@@ -692,6 +727,7 @@ proc toTimeInterval*(dt: DateTime): TimeInterval =
   result.minutes = dt.minute.float64
   result.seconds = dt.second.float64
   result.microseconds = dt.microsecond.float64
+  result.calculated = true
 
 
 proc toUTC*(dt: DateTime): DateTime =
@@ -721,10 +757,18 @@ proc fromUnixEpochSeconds*(ues: float64, hoffset, moffset: int = 0): DateTime =
   var seconds = floor(ues) + UnixEpochSeconds.float64
   seconds += float64(hoffset * 3600)
   seconds += float64(moffset * 60)
-  let fraction = modulo(ues, 1.0)
+
+  when defined(js):
+    let fraction = `mod`(ues, 1.0)
+  else:
+    let fraction = modulo[float64,float64](ues, 1.0)
+
   var ts: TimeStamp
   ts.seconds = seconds.float64
   ts.microseconds = fraction * 1e6
+  if ts.microseconds >= 1e6:
+    ts.seconds += 1
+    ts.microseconds = ts.microseconds - 1e6
   fromTimeStamp(ts)
 
 
@@ -1645,6 +1689,7 @@ when isMainModule:
   echo "can we initialize a TimeDelta value from a known number of seconds"
   td = initTimeDelta(seconds=td.totalSeconds)
   echo td
+  echo epd + td, " ", current
   assert epd + td == current
 
   # experiments with fractional values used to initialize
@@ -1677,9 +1722,9 @@ when isMainModule:
   echo "2   billion seconds since epoch:   ",   $e, " time delta: ", $(e - epd)
   assert int((e - epd).totalSeconds()) == 2_000_000_000
   echo "2.5 billion seconds since epoch:   ",   $f, " time delta: ", $(f - epd)
-  assert int((f - epd).totalSeconds()) == 2_500_000_000
+  assert((f - epd).totalSeconds() == 2_500_000_000.0)
   echo "3   billion seconds since epoch:   ", $e, " time delta: ", $(e - epd)
-  assert int((g - epd).totalSeconds()) == 3_000_000_000
+  assert((g - epd).totalSeconds() == 3_000_000_000.0)
 
   echo "check dates from wikipedia page about Unix Time"
   assert $a == "2001-09-09T01:46:40"
