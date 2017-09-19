@@ -706,7 +706,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
       let yrs = quotient(tmpMonths, 12)
       let f1 = toOrdinalFromYMD(dt.year, dt.month, dt.day)
       let f2 = toOrdinalFromYMD(dt.year - (yrs - 0), dt.month, dt.day)
-      result.seconds -= float64((f1 - f2) * OneDay)
+      result.seconds -= float64((f1 - f2).float64 * OneDay.float64)
       newinterv.months = -float64(modulo(tmpMonths, 12))
       anew.year -= yrs
 
@@ -723,7 +723,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
       let yrs = quotient(newinterv.months, 12)
       let f1 = toOrdinalFromYMD(dt.year, dt.month, dt.day)
       let f2 = toOrdinalFromYMD(dt.year + (yrs - 0), dt.month, dt.day)
-      result.seconds += float64((f2 - f1) * OneDay)
+      result.seconds += float64((f2 - f1).float64 * OneDay.float64)
       newinterv.months = float64(modulo(newinterv.months, 12))
       anew.year += yrs
 
