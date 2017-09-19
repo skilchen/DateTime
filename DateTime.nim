@@ -1,9 +1,46 @@
+##
+## DateTime functions for nim
+##
+## A collection of some functions to do Date/Time calculations inspired by
+## various sources:
+##
+## -  the `datetime <https://docs.python.org/3/library/datetime.html>`__
+##    module from Python
+## -  CommonLisps
+##    `calendrica-3.0.cl <https://github.com/espinielli/pycalcal>`__ ported
+##    to Python and to `Nim <https://github.com/skilchen/nimcalcal>`__
+## -  the `times <https://nim-lang.org/docs/times.html>`__ module from
+##    Nim standard library
+## -  Skrylars `rfc3339 <https://github.com/skrylar/rfc3339>`__ module from
+##    Github
+##
+## This module provides simple types and procedures to represent date/time
+## values and to perform calculations with them, such as absolute and
+## relative differences between DateTime instances and TimeDeltas or
+## TimeIntervals.
+##
+## The parsing and formatting procedures are from Nims standard library
+## and from the rfc3339 module. Additionally it implements a simple version
+## of strftime inspired mainly by the
+## `LuaDate <https://github.com/wscherphof/lua-date>`__ module and Pythons
+## `strftime <https://docs.python.org/3/library/datetime.html#strftime-strptime-behavior>`__
+## function.
+##
+## My main goals are:
+##
+## -  epochTime() is the only platform specific date/time functions in use.
+## -  dealing with timezone offsets is the responsibility of the user of
+##    this module. it allows you to store an offset to UTC and a DST flag
+##    but no attempt is made to detect these things from the running
+##    platform.
+## -  hopefully correct implementation of the used algorithms.
+## -  it should run both on the c and the js backend
+##
+
 import strutils
 import parseutils
 import math
-from times import epochTime, getLocalTime, fromSeconds, getTimezone
-
-export epochTime, getLocalTime, fromSeconds, getTimezone
+from times import epochTime
 
 const
   OneDay = 86400
@@ -42,7 +79,7 @@ type TimeInterval* = object ## a time interval
   seconds*: float64      ## The number of seconds
   microseconds*: float64 ## The number of microseconds
   calculated: bool       ## to indicate if TimeInterval was manually set
-                         ## or caculated internally
+                         ## or calculated internally
 
 type TimeStamp* = object
   seconds*: float64
@@ -51,23 +88,26 @@ type TimeStamp* = object
 
 proc ifloor*[T](n: T): int =
   ## Return the whole part of m/n.
-  # from math import floor
   return int(floor(n.float64))
 
 
 proc quotient*[T, U](m: T, n:U): int =
-  ## Return the whole part of m/n towards negative infinity.
+  ## Return the whole part of m/n rounded towards negative infinity.
+  ## (also known as "floor division")
   return ifloor(m.float64 / n.float64)
 
 
 proc modulo*[T, U](x: T, y: U): U =
+  ## The modulo operation using floor division
+  ## x - floor(x / y) * y
   return x.U - quotient(x.U, y.U).U * y
 
 
 proc `$`*(dt: DateTime): string =
   ## get a standard string representation of
   ## `dt` DateTime. Somewhat similar to the
-  ## format defined in RFC3339
+  ## format defined in RFC3339:
+  ## yyyy-MM-ddThh:mm:ss[.ffffff][Z / (+/-hh:mm)]
   ##
   result = ""
   result.add(intToStr(dt.year, 4))
@@ -188,10 +228,8 @@ proc initTimeDelta*(days, hours, minutes, seconds, microseconds: float64 = 0): T
   s += hours * 3600
   s += minutes * 60
   s += seconds
-  s += microseconds / 1e6
   result.days = quotient(s, OneDay.float64)
   result.seconds = int(s - float64(OneDay.float64 * result.days.float64))
-#  result.microseconds = int(round(modulo(s, 1.0) * 1e6))
   if microseconds != 0:
     result.microseconds = int(microseconds)
 
@@ -217,7 +255,7 @@ proc initTimeInterval*(years, months, days, hours, seconds, minutes, microsecond
   ##
   ## .. code-block:: nim
   ##
-  ##     let day = initInterval(hours=24
+  ##     let day = initInterval(hours = 24)
   ##     let tomorrow = now() + day
   ##     echo(tomorrow)
   ##
@@ -378,7 +416,7 @@ proc toTimeStamp*(td: TimeDelta): TimeStamp =
   ## a TimeStamp with values seconds and
   ## microseconds. Needed because 64bit
   ## floats have not enough precision to
-  ## represet microsecond time resolution.
+  ## represent microsecond time resolution.
   ##
   result.seconds = float64(td.days.float64 * OneDay.float64)
   result.seconds += td.seconds.float64
@@ -418,15 +456,15 @@ proc countLeapYears*(year: int): int =
   ## Keep in mind that if specified year is a leap year, the leap day
   ## has not happened before January 1st of that year.
   ##
-  ## from nims's standard library
+  ## from Nims standard library
   let years = year - 1
   (years div 4) - (years div 100) + (years div 400)
 
 
 proc toOrdinalFromYMD*(year, month, day: int): int64 =
-  ## return the ordinal day number in the proleptic gregorian calendar
-  ## 0001-01-01 is day number 1
-  ## algorithm from CommonLisp calendrica-3.0
+  ##| return the ordinal day number in the proleptic gregorian calendar
+  ##| 0001-01-01 is day number 1
+  ##| algorithm from CommonLisp calendrica-3.0
   ##
   result = 0
   result += (365 * (year - 1))
@@ -445,17 +483,17 @@ proc toOrdinalFromYMD*(year, month, day: int): int64 =
 
 
 proc toOrdinal*(dt: DateTime): int64 =
-  ## return the ordinal number of the date represented
-  ## in the `dt` DateTime value.
-  ## the same as python's toordinal() and
-  ## calendrica-3.0's fixed-from-gregorian
+  ##| return the ordinal number of the date represented
+  ##| in the `dt` DateTime value.
+  ##| the same as python's toordinal() and
+  ##| calendrica-3.0's fixed-from-gregorian
   ##
   return toOrdinalFromYMD(dt.year, dt.month, dt.day)
 
 
 proc yearFromOrdinal*(ordinal: int64): int =
-  ## Return the Gregorian year corresponding to the gregorian ordinal
-  ## algorithm from CommonLisp calendrica-3.0
+  ## | Return the Gregorian year corresponding to the gregorian ordinal.
+  ## | algorithm from CommonLisp calendrica-3.0
   ##
   let d0   = ordinal - 1
   let n400 = quotient(d0, 146097)
@@ -473,9 +511,9 @@ proc yearFromOrdinal*(ordinal: int64): int =
 
 
 proc fromOrdinal*(ordinal: int64): DateTime =
-  ## Return the DateTime Date part corresponding to the gregorian ordinal.
-  ## the same as python's fromordinal and calendrica-3.0's
-  ## gregorian-from-fixed
+  ##| Return the DateTime Date part corresponding to the gregorian ordinal.
+  ##| the same as python's fromordinal and calendrica-3.0's
+  ##| gregorian-from-fixed
   ##
   let year = yearFromOrdinal(ordinal)
   let prior_days = ordinal - toOrdinalFromYMD(year, 1, 1)
@@ -495,8 +533,8 @@ proc fromOrdinal*(ordinal: int64): DateTime =
 
 
 proc toTimeStamp*(dt: DateTime): TimeStamp =
-  ## return number of Seconds and MicroSeconds
-  ## since 0001-01-01T00:00:00
+  ##| return number of Seconds and MicroSeconds
+  ##| since 0001-01-01T00:00:00
   ##
   result.seconds = float64(toOrdinal(dt)) * OneDay
   result.seconds += float64(dt.hour * 60 * 60)
@@ -506,8 +544,8 @@ proc toTimeStamp*(dt: DateTime): TimeStamp =
 
 
 proc toTimeDelta*(dt: DateTime): TimeDelta =
-  ## return number of Days, Seconds and MicroSeconds
-  ## since 0001-01-01T00:00:00
+  ##| return number of Days, Seconds and MicroSeconds
+  ##| since 0001-01-01T00:00:00
   ##
   result.days = int(toOrdinal(dt))
   result.seconds = dt.hour * 60 * 60
@@ -517,9 +555,9 @@ proc toTimeDelta*(dt: DateTime): TimeDelta =
 
 
 proc kday_on_or_before*(k: int, ordinal_date: int64): int64 =
-  ## Return the ordinal date of the k-day on or before ordinal date 'date'.
-  ## k=0 means Sunday, k=1 means Monday, and so on.
-  ## from CommonLisp calendrica-3.0
+  ##| Return the ordinal date of the k-day on or before ordinal date 'date'.
+  ##| k=0 means Sunday, k=1 means Monday, and so on.
+  ##| from CommonLisp calendrica-3.0
   ##
   #return ordinal_date - modulo(ordinal_date - k, 7)
   let od = ordinal_date - (quotient(GregorianEpochSeconds, 86400) - 1)
@@ -527,44 +565,44 @@ proc kday_on_or_before*(k: int, ordinal_date: int64): int64 =
 
 
 proc kday_on_or_after*(k: int, ordinal_date: int64): int64 =
-  ## Return the ordinal date of the k-day on or after ordinal date 'date'.
-  ## k=0 means Sunday, k=1 means Monday, and so on.
-  ## from CommonLisp calendrica-3.0
+  ##| Return the ordinal date of the k-day on or after ordinal date 'date'.
+  ##| k=0 means Sunday, k=1 means Monday, and so on.
+  ##| from CommonLisp calendrica-3.0
   ##
   return kday_on_or_before(k, ordinal_date + 6)
 
 
 proc kday_nearest*(k: int, ordinal_date: int64): int64 =
-  ## Return the ordinal date of the k-day nearest ordinal date 'date'.
-  ## k=0 means Sunday, k=1 means Monday, and so on.
-  ## ## from CommonLisp calendrica-3.0
+  ##| Return the ordinal date of the k-day nearest ordinal date 'date'.
+  ##| k=0 means Sunday, k=1 means Monday, and so on.
+  ##| from CommonLisp calendrica-3.0
   ##
   return kday_on_or_before(k, ordinal_date + 3)
 
 
 proc kday_after*(k: int, ordinal_date: int64): int64 =
-  ## Return the ordinal date of the k-day after ordinal date 'date'.
-  ## k=0 means Sunday, k=1 means Monday, and so on.
-  ## from CommonLisp calendrica-3.0
+  ##| Return the ordinal date of the k-day after ordinal date 'date'.
+  ##| k=0 means Sunday, k=1 means Monday, and so on.
+  ##| from CommonLisp calendrica-3.0
   ##
   return kday_on_or_before(k, ordinal_date + 7)
 
 
 proc kday_before*(k: int, ordinal_date: int64): int64 =
-  ## Return the ordinal date of the k-day before ordinal date 'date'.
-  ## k=0 means Sunday, k=1 means Monday, and so on.
-  ## from CommonLisp calendrica-3.0
+  ##| Return the ordinal date of the k-day before ordinal date 'date'.
+  ##| k=0 means Sunday, k=1 means Monday, and so on.
+  ##| from CommonLisp calendrica-3.0
   ##
   return kday_on_or_before(k, ordinal_date - 1)
 
 
 proc nth_kday*(nth, k, year, month, day: int): int64 =
-  ## Return the fixed date of n-th k-day after Gregorian date 'g_date'.
-  ## If n>0, return the n-th k-day on or after  'g_date'.
-  ## If n<0, return the n-th k-day on or before 'g_date'.
-  ## If n=0, return BOGUS.
-  ## A k-day of 0 means Sunday, 1 means Monday, and so on.
-  ## from CommonLisp calendrica-3.0
+  ##| Return the fixed date of n-th k-day after Gregorian date 'g_date'.
+  ##| If n>0, return the n-th k-day on or after  'g_date'.
+  ##| If n<0, return the n-th k-day on or before 'g_date'.
+  ##| If n=0, raise Exception.
+  ##| A k-day of 0 means Sunday, 1 means Monday, and so on.
+  ##| from CommonLisp calendrica-3.0
   ##
   let ordinal = int(toOrdinalFromYMD(year, month, day))
   if nth > 0:
@@ -576,21 +614,21 @@ proc nth_kday*(nth, k, year, month, day: int): int64 =
 
 
 proc toOrdinalFromISO*(isod: ISOWeekDate): int64 =
-  ## get the ordinal number of the `isod` ISOWeekDate in
-  ## the proleptic gregorian calendar.
-  ## same as calendrica-3.0's fixed-from-iso
+  ##| get the ordinal number of the `isod` ISOWeekDate in
+  ##| the proleptic gregorian calendar.
+  ##| same as calendrica-3.0's fixed-from-iso
   ##
   return nth_kday(isod.week, 0, isod.year - 1, 12, 28) + isod.weekday
 
 
 proc amod*[T](x, y: T): int =
-  ## Return the same as modulo(a, b) with b instead of 0.
+  ##| Return the same as modulo(a, b) with b instead of 0.
   return int(y.float64 + modulo(x.float64, -y.float64))
 
 
 proc toISOWeekDate*(dt: DateTime): ISOWeekDate =
-  ## Return the ISO week date (YYYY-Www-wd) corresponding to the DateTime 'dt'.
-  ## algorithm from CommonLisp calendrica-3.0's iso-from-fixed
+  ##| Return the ISO week date (YYYY-Www-wd) corresponding to the DateTime 'dt'.
+  ##| algorithm from CommonLisp calendrica-3.0's iso-from-fixed
   ##
   let ordinal = toOrdinal(dt)
   let approx = yearFromOrdinal(ordinal)
@@ -636,7 +674,7 @@ template `cmp`*(x, y: DateTime): int =
 
 proc getDaysInMonth*(month: int, year: int): int =
   ## Get the number of days in a ``month`` of a ``year``
-  ## from times module in nim's standard library
+  ## from times module in Nims standard library
   ##
   # http://www.dispersiondesign.com/articles/time/number_of_days_in_a_month
   case month
@@ -651,7 +689,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
   ## Calculates the number of fractional seconds the interval is worth
   ## relative to `dt`.
   ##
-  ## adapted from nim's standard library
+  ## adapted from Nims standard library
   ##
   var anew = dt
   var newinterv = ti
@@ -663,6 +701,15 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
   # now we are on day 1 of curMonth
 
   if newinterv.months < 0:   # subtracting
+    var tmpMonths = abs(newinterv.months)
+    if tmpMonths > 12:
+      let yrs = quotient(tmpMonths, 12)
+      let f1 = toOrdinalFromYMD(dt.year, dt.month, dt.day)
+      let f2 = toOrdinalFromYMD(dt.year - (yrs - 0), dt.month, dt.day)
+      result.seconds -= float64((f1 - f2) * OneDay)
+      newinterv.months = -float64(modulo(tmpMonths, 12))
+      anew.year -= yrs
+
     for mth in countDown(-1 * newinterv.months.int, 1):
       # subtract the number of seconds in the previous month
       if curMonth == 1:
@@ -672,6 +719,14 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
         curMonth.dec()
       result.seconds -= float64(getDaysInMonth(curMonth, anew.year) * 24 * 60 * 60)
   else:  # adding
+    if newinterv.months > 12:
+      let yrs = quotient(newinterv.months, 12)
+      let f1 = toOrdinalFromYMD(dt.year, dt.month, dt.day)
+      let f2 = toOrdinalFromYMD(dt.year + (yrs - 0), dt.month, dt.day)
+      result.seconds += float64((f2 - f1) * OneDay)
+      newinterv.months = float64(modulo(newinterv.months, 12))
+      anew.year += yrs
+
     # add number of seconds in current month
     for mth in 1 .. newinterv.months.int:
       result.seconds += float64(getDaysInMonth(curMonth, anew.year) * 24 * 60 * 60)
@@ -680,7 +735,6 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
         anew.year.inc()
       else:
         curMonth.inc()
-
   if not newinterv.calculated:
     # add the number of seconds we first subtracted back to get to anew.day in the current month.
     # if no days were set in the TimeInterval, we have to make sure that anew.day fits in the
@@ -692,6 +746,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
     # if a number of days was set in the timeinterval by an internal calculation,
     # we don't adjust for the maximal day number in the target month.
     result.seconds += float64((dt.day - 1) * OneDay)
+
   result.seconds += float64(newinterv.days.int * 24 * 60 * 60)
   result.seconds += float64(newinterv.hours.int * 60 * 60)
   result.seconds += float64(newinterv.minutes.int * 60)
@@ -700,8 +755,8 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
 
 
 proc fromTimeStamp*(ts: TimeStamp): DateTime =
-  ## return DateTime from TimeStamp (number of seconds since 0001-01-01T00:00:00)
-  ## algorithm from CommonLisp calendrica-3.0
+  ##| return DateTime from TimeStamp (number of seconds since 0001-01-01T00:00:00)
+  ##| algorithm from CommonLisp calendrica-3.0
   ##
   result = fromOrdinal(quotient(ts.seconds, OneDay))
   var tmp = modulo(ts.seconds, float64(OneDay))
@@ -718,7 +773,7 @@ proc toTimeInterval*(dt: DateTime): TimeInterval =
   ## the start of the proleptic Gregorian calendar.
   ## This can be used to calculate what other people
   ## (eg. python's dateutil) call relative time deltas.
-  ## The idea for this comes from nim's standard library
+  ## The idea for this comes from Nims standard library
   ##
   result.years = dt.year.float64
   result.months = dt.month.float64
@@ -820,8 +875,7 @@ proc `-`*(x, y: DateTime): TimeDelta =
   ## of the proleptic Gregorian calendar.)
   ##
   let tdiff = toTimeStamp(x) - toTimeStamp(y)
-  result = initTimeDelta(seconds = float64(tdiff.seconds),
-                         microseconds = float64(tdiff.microseconds))
+  result = initTimeDelta(seconds = tdiff.seconds, microseconds=tdiff.microseconds)
 
 
 template transferOffsetInfo(dt: DateTime) =
@@ -850,7 +904,7 @@ proc `-`*(dt: DateTime, td: TimeDelta): DateTime =
   ## subtract TimeDelta `td` from DateTime value in `dt`
   ##
   result = fromTimeStamp(dt.toTimeStamp() - td.toTimeStamp())
-  transferOffsetInfo(dt)  
+  transferOffsetInfo(dt)
 
 
 proc `+`*(dt: DateTime, ti: TimeInterval): DateTime =
@@ -859,7 +913,7 @@ proc `+`*(dt: DateTime, ti: TimeInterval): DateTime =
   var ts = toTimeStamp(dt) + toTimeStamp(dt, ti)
   normalizeTimeStamp(ts)
   result = fromTimeStamp(ts)
-  transferOffsetInfo(dt)  
+  transferOffsetInfo(dt)
 
 
 proc `-`*(dt: DateTime, ti: TimeInterval): DateTime =
@@ -870,10 +924,10 @@ proc `-`*(dt: DateTime, ti: TimeInterval): DateTime =
   var ts = toTimeStamp(dt) + toTimeStamp(dt, -ti)
   normalizeTimeStamp(ts)
   result = fromTimeStamp(ts)
-  transferOffsetInfo(dt)  
+  transferOffsetInfo(dt)
 
 
-template getWeekDay*(dt: DateTime): int =
+proc getWeekDay*(dt: DateTime): int =
   ## get the weeday number for the date stored in
   ## `dt`. The day 0001-01-01 was a monday, so we
   ## can take the ordinal number of the date in `dt`
@@ -894,8 +948,8 @@ proc getYearDay*(dt: DateTime): int =
 
 
 proc easter*(year: int): DateTime =
-  ## Return Date of Easter in Gregorian year `year`.
-  ## adapted from CommonLisp calendrica-3.0
+  ##| Return Date of Easter in Gregorian year `year`.
+  ##| adapted from CommonLisp calendrica-3.0
   ##
   let century = quotient(year, 100) + 1
   let shifted_epact = modulo(14 + (11 * modulo(year, 19)) -
@@ -916,11 +970,20 @@ proc now*(): DateTime =
   ## and time from the running system.
   ## This does not set the offset to UTC. It simply
   ## takes what epochTime() gives (a fractional number
-  ## of seconds since the start of the Unix epoch) and
-  ## converts that number in a DateTime value.
+  ## of seconds since the start of the Unix epoch (probably in UTC))
+  ## and converts that number in a DateTime value.
   ##
-  result = fromUnixEpochSeconds(epochTime(), hoffset = 2, moffset = 0)
-  result.setUTCOffset(2, 0)
+  ## You have to add the offset to UTC yourself if epochTime() gives
+  ## you a time in UTC. Example for the offset +02:00:
+  ##
+  ## .. code-block:: nim
+  ##    var localtime = now() + 2.hours
+  ##    # if you do care about this offset
+  ##    # (eg. to convert localtime to UTC)
+  ##    localtime.setUTCoffset(2, 0)
+  ##    var utctime = localtime.toUTC()
+  ##
+  result = fromUnixEpochSeconds(epochTime())
 
 
 proc parseToken(dt: var DateTime; token, value: string; j: var int) =
@@ -1517,10 +1580,11 @@ proc strftime*(dt: DateTime, fmtstr: string): string =
 
 
 proc fromRFC3339*(self: string): DateTime =
-  ## taken from skrylar's rfc3339 module on github. with some
-  ## corrections according to my own understanding of RFC3339
+  ## taken from Skrylars `rfc3339 <https://github.com/skrylar/rfc3339>`__
+  ## module on github. with some corrections according to my own
+  ## understanding of RFC3339
   ##
-  ## Parses a string as an RFC3339 date, returning an DateTime object.
+  ## Parses a string as an RFC3339 date, returning a DateTime object.
   var i = 0
 
   template getch(): char =
@@ -1627,13 +1691,14 @@ proc fromRFC3339*(self: string): DateTime =
         discard
   return work
 
+
 when isMainModule:
-  ## some experiments...
-  ##
+  # some experiments and tests ...
+  #
 
   echo "what's the datetime of the first day in backwards"
   echo "extrapolated (proleptic) gregorian calendar?"
-  
+
   var dt = fromOrdinal(1)
   echo $dt
   echo $dt.toTimeStamp()
@@ -1647,7 +1712,7 @@ when isMainModule:
   echo ""
   echo "store the current UTC date/time given by the running system"
   var current = fromUnixEpochSeconds(epochTime(), hoffset=0, moffset=0)
-  
+
   echo "now: ", current, " weekday: ", getWeekDay(current), " yearday: ", getYearDay(current)
 
   echo ""
@@ -1655,7 +1720,7 @@ when isMainModule:
   var epd = fromTimeStamp(TimeStamp(seconds: float(UnixEpochSeconds)))
   echo "epd: ", epd
   echo ""
-  
+
   var td = current - epd
   echo "time delta since Unix epoch: ", td
   echo "total seconds since Unix epoch: ", td.totalSeconds()
@@ -1687,7 +1752,7 @@ when isMainModule:
 
   echo ""
   echo "can we initialize a TimeDelta value from a known number of seconds"
-  td = initTimeDelta(seconds=td.totalSeconds)
+  td = initTimeDelta(seconds=td.totalSeconds, microseconds=td.microseconds.float64)
   echo td
   echo epd + td, " ", current
   assert epd + td == current
@@ -1732,7 +1797,7 @@ when isMainModule:
   assert $c == "2009-02-13T23:31:30"
   assert $d == "2017-07-14T02:40:00"
   assert $e == "2033-05-18T03:33:20"
-  
+
   echo ""
   echo "the end of the Unix signed 32bit time:"
   e = fromUnixEpochSeconds(pow(2.0, 31))
@@ -1765,7 +1830,7 @@ when isMainModule:
     echo maxdate, " is it a leap year? ", if isLeapYear(maxdate.year): "yes" else: "no"
     var lycount = countLeapYears(maxdate.year)
     echo "leap years before the end of 64bit time: ", lycount
-    
+
     assert $maxdate == "292277026596-12-04T15:30:07"
 
   # playing with the surprisingly powerful idea to
