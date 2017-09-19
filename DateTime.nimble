@@ -16,6 +16,6 @@ task tests, "Run some DateTime examples and tests":
 
 task tests_js, "Run some DateTime examples and tests using the js backend":
   exec "nim js -d:nodejs -r DateTime"
-
-task module_doc, "generate the internal documentation for the DateTime module"
-  exec nim doc DateTime
+  
+task docgen, "generate the internal documentation for the DateTime module":
+  exec "nim doc DateTime"
