@@ -492,8 +492,8 @@ proc toOrdinal*(dt: DateTime): int64 =
 
 
 proc yearFromOrdinal*(ordinal: int64): int =
-  ## | Return the Gregorian year corresponding to the gregorian ordinal.
-  ## | algorithm from CommonLisp calendrica-3.0
+  ##| Return the Gregorian year corresponding to the gregorian ordinal.
+  ##| algorithm from CommonLisp calendrica-3.0
   ##
   let d0   = ordinal - 1
   let n400 = quotient(d0, 146097)
@@ -631,7 +631,7 @@ proc toISOWeekDate*(dt: DateTime): ISOWeekDate =
   ##| algorithm from CommonLisp calendrica-3.0's iso-from-fixed
   ##
   let ordinal = toOrdinal(dt)
-  let approx = yearFromOrdinal(ordinal)
+  let approx = yearFromOrdinal(ordinal - 3)
   var year = approx
   if ordinal >= toOrdinalFromISO(ISOWeekDate(year: approx + 1, week: 1, weekday: 1)):
     year += 1
@@ -705,7 +705,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
     if tmpMonths > 12:
       let yrs = quotient(tmpMonths, 12)
       let f1 = toOrdinalFromYMD(dt.year, dt.month, dt.day)
-      let f2 = toOrdinalFromYMD(dt.year - (yrs - 0), dt.month, dt.day)
+      let f2 = toOrdinalFromYMD(dt.year - yrs, dt.month, dt.day)
       result.seconds -= float64((f1 - f2).float64 * OneDay.float64)
       newinterv.months = -float64(modulo(tmpMonths, 12))
       anew.year -= yrs
@@ -722,7 +722,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
     if newinterv.months > 12:
       let yrs = quotient(newinterv.months, 12)
       let f1 = toOrdinalFromYMD(dt.year, dt.month, dt.day)
-      let f2 = toOrdinalFromYMD(dt.year + (yrs - 0), dt.month, dt.day)
+      let f2 = toOrdinalFromYMD(dt.year + yrs, dt.month, dt.day)
       result.seconds += float64((f2 - f1).float64 * OneDay.float64)
       newinterv.months = float64(modulo(newinterv.months, 12))
       anew.year += yrs
@@ -944,7 +944,7 @@ proc getYearDay*(dt: DateTime): int =
   ## number of days before the date stored in `dt`.
   ##
   let ny = DateTime(year: dt.year, month: 1, day: 1)
-  return int(toOrdinal(dt) - toOrdinal(ny))
+  return int(toOrdinal(dt) - toOrdinal(ny)) + 1
 
 
 proc easter*(year: int): DateTime =
@@ -1539,16 +1539,16 @@ proc strftime*(dt: DateTime, fmtstr: string): string =
         result.add(dt.strftime("%G-W%V-%u"))
         inc(i, 3)
       elif len(fmtstr[i..^1]) >= 4 and fmtstr[i..i+3] == "http":
-        result.add(dt.strftime("%a, %d %b %Y %T GMT"))
+        result.add(dt.toUTC.strftime("%a, %d %b %Y %T GMT"))
         inc(i, 3)
       elif len(fmtstr[i..^1]) >=  5 and fmtstr[i..i+4] == "ctime":
-        result.add(dt.strftime("%a %b %d %T GMT %Y"))
+        result.add(dt.toUTC.strftime("%a %b %d %T GMT %Y"))
         inc(i, 4)
       elif len(fmtstr[i..^1]) >= 6 and fmtstr[i..i+5] == "rfc850":
-        result.add(dt.strftime("%A, %d-%b-%y %T GMT"))
+        result.add(dt.toUTC.strftime("%A, %d-%b-%y %T GMT"))
         inc(i, 5)
       elif len(fmtstr[i..^1]) >= 7 and fmtstr[i..i+6] == "rfc1123":
-        result.add(dt.strftime("%a, %d %b %Y %T GMT"))
+        result.add(dt.toUTC.strftime("%a, %d %b %Y %T GMT"))
         inc(i, 6)
       elif len(fmtstr[i..^1]) >= 7 and fmtstr[i..i+6] == "rfc3339":
         result.add(dt.strftime("%Y-%m-%dT%H:%M:%S"))
