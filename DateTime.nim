@@ -45,6 +45,7 @@ from times import epochTime
 const
   OneDay = 86400
   UnixEpochSeconds = 62135683200
+  UnixEpochDays = 719468
   GregorianEpochSeconds = 1 * 24 * 60 * 60
 
 
@@ -97,10 +98,24 @@ proc quotient*[T, U](m: T, n:U): int =
   return ifloor(m.float64 / n.float64)
 
 
+proc tdiv*[T, U](m: T, n:U): int =
+  ## Return the whole part of m/n rounded towards zero.
+  ## (also known as "truncating division")
+  return int(m.float64 / n.float64)
+
+
 proc modulo*[T, U](x: T, y: U): U =
   ## The modulo operation using floor division
+  ##
   ## x - floor(x / y) * y
   return x.U - quotient(x.U, y.U).U * y
+
+
+proc tmod*[T, U](x: T, y: U): U =
+  ## The modulo operation using truncating division
+  ##
+  ## x - int(x / y) * y
+  return x.U - tdiv(x.U, y.U).U * y
 
 
 proc `$`*(dt: DateTime): string =
@@ -216,10 +231,10 @@ proc initDateTime*(year, month, day, hour, minute, second, microsecond: int = 0;
   result.minute = minute
   result.second = second
   result.microsecond = microsecond
+  result = fromTimeStamp(toTimeStamp(result))
   result.utcoffset = utcoffset
   result.isDST = isDST
   result.offsetKnown = offsetKnown
-  result = fromTimeStamp(toTimeStamp(result))
 
 
 proc initTimeDelta*(days, hours, minutes, seconds, microseconds: float64 = 0): TimeDelta =
@@ -244,6 +259,10 @@ proc initTimeStamp*(days, hours, minutes, seconds, microseconds: float64 = 0): T
   result.seconds = int(s).float64
   result.microseconds = round(modulo(s, 1.0) * 1e6)
 
+template initTimeStamp*(days, hours, minutes, seconds, microseconds: SomeInteger = 0): TimeStamp =
+  initTimeStamp(float64(days), float64(hours), float64(minutes),
+                float64(seconds), float64(microseconds))
+
 
 proc initTimeInterval*(years, months, days, hours, seconds, minutes, microseconds: float64 = 0, calculated = false): TimeInterval =
   ## creates a new ``TimeInterval``.
@@ -259,18 +278,20 @@ proc initTimeInterval*(years, months, days, hours, seconds, minutes, microsecond
   ##     let tomorrow = now() + day
   ##     echo(tomorrow)
   ##
+  ## in this variant we enforce truncating division
+  ##
   var carry: float64 = 0
-  result.microseconds = modulo(microseconds, 1e6)
-  carry = quotient(microseconds, 1e6).float64
-  result.seconds = modulo(carry + seconds, 60).float64
-  carry = quotient(carry + seconds, 60).float64
-  result.minutes = modulo(carry + minutes, 60).float64
-  carry = quotient(carry + minutes, 60).float64
-  result.hours = modulo(carry + hours, 24).float64
-  carry = quotient(carry + hours, 24).float64
+  result.microseconds = tmod(microseconds, 1e6)
+  carry = tdiv(microseconds, 1e6).float64
+  result.seconds = tmod(carry + seconds, 60).float64
+  carry = tdiv(carry + seconds, 60).float64
+  result.minutes = tmod(carry + minutes, 60).float64
+  carry = tdiv(carry + minutes, 60).float64
+  result.hours = tmod(carry + hours, 24).float64
+  carry = tdiv(carry + hours, 24).float64
   result.days = carry + days
-  result.months = modulo(months, 12).float64
-  carry = quotient(months, 12).float64
+  result.months = tmod(months.int, 12).float64
+  carry = tdiv(months, 12).float64
   result.years = carry + years
   result.calculated = calculated
 
@@ -532,6 +553,44 @@ proc fromOrdinal*(ordinal: int64): DateTime =
   result.day = day
 
 
+proc toDays*(year, month, day: int): int64 =
+  ## calculate the number of days since the
+  ## Unix epoch 1970-01-01
+  ##
+  ## inspired by `<http://howardhinnant.github.io/date/date.html>`__
+  ##
+  var yr = year
+  if month <= 2:
+    yr -= 1
+  let era = (if yr >= 0: yr else: yr - 399) div 400
+  let yoe = yr - era * 400
+  let doy = (153 * (if month > 2: month - 3 else: month + 9) + 2) div 5 + day - 1
+  let doe = yoe * 365 + yoe div 4 - yoe div 100 + doy
+  result = era * 146097 + doe - UnixEpochDays
+
+template toDays*(dt: DateTime): int64 =
+  toDays(dt.year, dt.month, dt.day)
+
+proc fromDays*(days: int64): DateTime =
+  ## get a DateTime instance from the number of days
+  ## since the Unix epoch 1970-01-01
+  ##
+  ## algorithm from `<http://howardhinnant.github.io/date/date.html>`__
+  ##
+  let z = days + UnixEpochDays
+  let era = (if z >= 0: z else: z - 146096) div 146097
+  let doe = z - era * 146097
+  let yoe = (doe - doe div 1460 + doe div 36524  - doe div 146096) div 365
+  let y = yoe + era * 400
+  let doy = doe - (365 * yoe + yoe div 4 - yoe div 100)
+  let mp = (5 * doy + 2) div 153
+  let d = doy - (153 * mp + 2) div 5 + 1
+  let m = if mp < 10: mp + 3 else: mp - 9
+  result.year = int(if m <= 2: y + 1 else: y)
+  result.month = int(m)
+  result.day = int(d)
+
+
 proc toTimeStamp*(dt: DateTime): TimeStamp =
   ##| return number of Seconds and MicroSeconds
   ##| since 0001-01-01T00:00:00
@@ -612,6 +671,11 @@ proc nth_kday*(nth, k, year, month, day: int): int64 =
   else:
     raise newException(ValueError, "0 is not a valid parameter for nth_kday")
 
+proc nth_kday*(nth, k: int; dt: DateTime): DateTime =
+  result = fromOrdinal(nth_kday(nth, k, dt.year, dt.month, dt.day))
+  result.utcoffset = dt.utcoffset
+  result.offsetKnown = dt.offsetKnown
+  result.isDST = dt.isDST
 
 proc toOrdinalFromISO*(isod: ISOWeekDate): int64 =
   ##| get the ordinal number of the `isod` ISOWeekDate in
@@ -644,8 +708,9 @@ proc toISOWeekDate*(dt: DateTime): ISOWeekDate =
 
 
 template `<`*(x, y: TimeStamp): bool =
-  x.seconds < y.seconds and
-    x.microseconds < y.microseconds
+  x.seconds < y.seconds or
+    x.seconds == y.seconds and
+      x.microseconds < y.microseconds
 
 
 template `==`*(x, y: TimeStamp): bool =
@@ -659,6 +724,14 @@ template `<`*(x, y: DateTime): bool =
 
 template `==`*(x, y: DateTime): bool =
   toTimeStamp(x) == toTimeStamp(y)
+
+proc `<=`*(x, y: DateTime): bool =
+  var x = toTimeStamp(x)
+  var y = toTimeStamp(y)
+  result = (x < y) or (x == y)
+
+template `>=`*(x, y: DateTime): bool =
+  not (x < y)
 
 
 template `cmp`*(x, y: DateTime): int =
@@ -681,6 +754,36 @@ proc getDaysInMonth*(month: int, year: int): int =
   of 2: result = if isLeapYear(year): 29 else: 28
   of 4, 6, 9, 11: result = 30
   else: result = 31
+
+
+proc getDaysBeforeMonth*(month: int, leap: int): int =
+  ## Get the number of days before the first day in ``month``
+  case month
+  of 1:
+    result = 0
+  of 2:
+    result = 31
+  of 3:
+    result = 59 + leap
+  of 4:
+    result = 90 + leap
+  of 5:
+    result = 120 + leap
+  of 6:
+    result = 151 + leap
+  of 7:
+    result = 181 + leap
+  of 8:
+    result = 212 + leap
+  of 9:
+    result = 243 + leap
+  of 10:
+    result = 273 + leap
+  of 11:
+    result = 304 + leap
+  else:
+    result = 334 + leap
+
 
 proc `+`*(dt: DateTime, td: TimeDelta): DateTime {.gcsafe.}
 proc `-`*(dt: DateTime, td: TimeDelta): DateTime {.gcsafe.}
@@ -785,6 +888,89 @@ proc toTimeInterval*(dt: DateTime): TimeInterval =
   result.calculated = true
 
 
+proc normalizeTimeStamp(ts: var TimeStamp) =
+  ## during various calculations in this module
+  ## the value of microseconds will go below zero
+  ## or above 1e6. We correct the stored value in
+  ## seconds to keep the microseconds between 0
+  ## and 1e6 - 1
+  ##
+  if ts.microseconds < 0:
+    ts.seconds -= float64(quotient(ts.microseconds, -1_000_000) + 1)
+    ts.microseconds = float64(modulo(ts.microseconds, 1_000_000))
+  elif ts.microseconds >= 1_000_000:
+    ts.seconds += float64(quotient(ts.microseconds, 1_000_000))
+    ts.microseconds = float64(modulo(ts.microseconds, 1_000_000))
+
+
+proc `-`*(x, y: TimeStamp): TimeStamp =
+  ## substract TimeStamp `y` from `x`
+  result.seconds = x.seconds - y.seconds
+  result.microseconds = x.microseconds - y.microseconds
+  normalizeTimeStamp(result)
+
+
+proc `+`*(x, y: TimeStamp): TimeStamp =
+  ## add TimeStamp `y` to `x`
+  result.seconds = x.seconds + y.seconds
+  result.microseconds = x.microseconds + y.microseconds
+  normalizeTimeStamp(result)
+
+
+proc `+`*(dt: DateTime, ti: TimeInterval): DateTime {.gcsafe.}
+proc `+`*(dt: DateTime, ts: TimeStamp): DateTime {.gcsafe.}
+
+proc toTimeInterval*(dt1, dt2: DateTime): TimeInterval =
+  ## calculate the `TimeInterval` between two `DateTime`
+  ## a loopless implementation inspired in the date part
+  ## by the until Method of the new java.time.LocalDate class
+  ##
+
+  var (dt1, dt2) = (dt1, dt2)
+  var sign = 1
+  if dt2 < dt1:
+    (dt1, dt2) = (dt2, dt1)
+    echo dt1, " ", dt2
+    sign = -1
+
+  let ts1 = initTimeStamp(hours = dt1.hour, minutes = dt1.minute,
+                          seconds = dt1.second, microseconds = dt1.microsecond)
+  let ts2 = initTimeStamp(hours = dt2.hour, minutes = dt2.minute,
+                          seconds = dt2.second, microseconds = dt2.microsecond)
+  let difftime = ts2 - ts1
+  let diffdays = int(quotient(difftime.seconds, 86400))
+  var diffseconds = int(difftime.seconds) - 86400 * diffdays
+  let diffhours = quotient(diffseconds, 3600)
+  let diffminutes = quotient(diffseconds - 3600 * diffhours, 60)
+  diffseconds = diffseconds - 3600 * diffhours - 60 * diffminutes
+  dt2 = dt2 + initTimeInterval(days = float(diffdays))
+
+  var totalMonths = dt2.year * 12 - dt1.year * 12 + dt2.month - dt1.month
+  var days = dt2.day - dt1.day
+  if (totalMonths > 0 and days < 0):
+    totalMonths.dec
+    let tmpDate = dt1 + initTimeInterval(months = totalMonths.float64)
+    days = int(dt2.toOrdinal() - tmpDate.toOrdinal())
+  elif (totalMonths < 0 and days > 0):
+    totalMonths.inc
+    days = days - getDaysInMonth(dt2.year, dt2.month) + 1
+  let years = totalMonths div 12
+  let months = totalMonths mod 12
+
+  echo initTimeInterval(hours = -22.0)
+  return initTimeInterval(years = float64(sign * years),
+                          months = float64(sign * months),
+                          days = float64(sign * days),
+                          hours = float64(sign * diffhours),
+                          minutes = float64(sign * diffminutes),
+                          seconds = float64(sign * diffseconds),
+                          microseconds = float64(sign) * difftime.microseconds)
+
+
+proc toTimeIntervalb*(dt1, dt2: DateTime): TimeInterval =
+  result = dt2.toTimeinterval() - dt1.toTimeInterval
+
+
 proc toUTC*(dt: DateTime): DateTime =
   ## correct the value in `dt` according to the
   ## offset to UTC stored in the value
@@ -836,33 +1022,32 @@ proc toUnixEpochSeconds*(dt: DateTime): float64 =
   result += ts.microseconds.float64 / 1e6
 
 
-proc normalizeTimeStamp(ts: var TimeStamp) =
-  ## during various calculations in this module
-  ## the value of microseconds will go below zero
-  ## or above 1e6. We correct the stored value in
-  ## seconds to keep the microseconds between 0
-  ## and 1e6 - 1
+proc toTime*(dt: DateTime): float64 =
+  ## get the number of fractional seconds since
+  ## start of the Unix epoch on 1970-01-01T00:00:00
   ##
-  if ts.microseconds < 0:
-    ts.seconds -= float64(quotient(ts.microseconds, -1_000_000) + 1)
-    ts.microseconds = float64(modulo(ts.microseconds, 1_000_000))
-  elif ts.microseconds >= 1_000_000:
-    ts.seconds += float64(quotient(ts.microseconds, 1_000_000))
-    ts.microseconds = float64(modulo(ts.microseconds, 1_000_000))
+  ## inspired by `<http://howardhinnant.github.io/date/date.html>`__
+  ##
+  let days = toDays(dt)
+  result = days.float64 * 86400.0
+  result += dt.hour.float64 * 3600.0
+  result += dt.minute.float64 * 60.0
+  result += dt.second.float64
+  result += dt.microsecond.float64 / 1e6
 
 
-proc `-`*(x, y: TimeStamp): TimeStamp =
-  ## substract TimeStamp `y` from `x`
-  result.seconds = x.seconds - y.seconds
-  result.microseconds = x.microseconds - y.microseconds
-  normalizeTimeStamp(result)
-
-
-proc `+`*(x, y: TimeStamp): TimeStamp =
-  ## add TimeStamp `y` to `x`
-  result.seconds = x.seconds + y.seconds
-  result.microseconds = x.microseconds + y.microseconds
-  normalizeTimeStamp(result)
+proc fromTime*(t: float64): DateTime =
+  ## get a DateTime from `t` number of seconds
+  ## since the start of the Unix epoch on
+  ## 1970-01-01T00:00:00
+  ##
+  let days = quotient(t, 86400)
+  result = fromDays(days)
+  let seconds = modulo(t, 86400)
+  result.hour = quotient(seconds, 3600)
+  result.minute = quotient(modulo(seconds, 3600), 60)
+  result.second = modulo(seconds, 60)
+  result.microsecond = int(modulo[float64,float64](t, 1.0) * 1e6)
 
 
 proc `-`*(x, y: DateTime): TimeDelta =
@@ -896,7 +1081,7 @@ proc `+`*(dt: DateTime, td: TimeDelta): DateTime =
   transferOffsetInfo(dt)
 
 
-template `+`*(dt: DateTime, ts: TimeStamp): DateTime =
+proc `+`*(dt: DateTime, ts: TimeStamp): DateTime =
   dt + initTimeDelta(seconds = ts.seconds, microseconds = ts.microseconds)
 
 
@@ -943,8 +1128,8 @@ proc getYearDay*(dt: DateTime): int =
   ## number of the stored day in the stored year. Not the
   ## number of days before the date stored in `dt`.
   ##
-  let ny = DateTime(year: dt.year, month: 1, day: 1)
-  return int(toOrdinal(dt) - toOrdinal(ny)) + 1
+  let leap = int(isLeapYear(dt.year))
+  getDaysBeforeMonth(dt.month, leap) + dt.day
 
 
 proc easter*(year: int): DateTime =
@@ -963,6 +1148,34 @@ proc easter*(year: int): DateTime =
       adjusted_epact = shifted_epact
   let paschal_moon = (toOrdinalFromYMD(year, 4, 19)) - adjusted_epact
   return fromOrdinal(kday_after(0, paschal_moon))
+
+
+proc `*`(ti: TimeInterval, i: int): TimeInterval =
+  let i = float64(i)
+  result.years = ti.years * i
+  result.months = ti.months * i
+  result.days = ti.days * i
+  result.hours = ti.hours * i
+  result.minutes = ti.minutes * i
+  result.seconds = ti.seconds * i
+  result.microseconds = ti.microseconds * i
+
+
+iterator countUp*(dtstart, dtend: DateTime, step: TimeInterval): DateTime =
+  var current = dtstart
+  var i = 1
+  while current <= dtend:
+    yield current
+    current = dtstart + (step * i)
+    inc(i)
+
+iterator countDown*(dtstart, dtend: DateTime, step: TimeInterval): DateTime =
+  var current = dtstart
+  var i = 1
+  while current >= dtend:
+    yield current
+    current = dtstart + (step * -i)
+    inc(i)
 
 
 proc now*(): DateTime =
