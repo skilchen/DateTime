@@ -930,7 +930,6 @@ proc toTimeInterval*(dt1, dt2: DateTime): TimeInterval =
   var sign = 1
   if dt2 < dt1:
     (dt1, dt2) = (dt2, dt1)
-    echo dt1, " ", dt2
     sign = -1
 
   let ts1 = initTimeStamp(hours = dt1.hour, minutes = dt1.minute,
@@ -957,7 +956,6 @@ proc toTimeInterval*(dt1, dt2: DateTime): TimeInterval =
   let years = totalMonths div 12
   let months = totalMonths mod 12
 
-  echo initTimeInterval(hours = -22.0)
   return initTimeInterval(years = float64(sign * years),
                           months = float64(sign * months),
                           days = float64(sign * days),
@@ -1452,7 +1450,7 @@ proc parse*(value, layout: string): DateTime =
 const WeekDayNames: array[7, string] = ["Sunday", "Monday", "Tuesday", "Wednesday",
      "Thursday", "Friday", "Saturday"]
 
-const MonthNames: array[1..12, string] = ["January", "February", "March",
+const MonthNames: array[0..12, string] = ["", "January", "February", "March",
       "April", "May", "June", "July", "August", "September", "October",
       "November", "December"]
 
