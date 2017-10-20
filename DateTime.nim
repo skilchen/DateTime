@@ -745,7 +745,7 @@ template `cmp`*(x, y: DateTime): int =
     return 0
 
 
-proc getDaysInMonth*(month: int, year: int): int =
+proc getDaysInMonth*(year: int, month: int): int =
   ## Get the number of days in a ``month`` of a ``year``
   ## from times module in Nims standard library
   ##
@@ -820,7 +820,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
         anew.year.dec()
       else:
         curMonth.dec()
-      result.seconds -= float64(getDaysInMonth(curMonth, anew.year) * 24 * 60 * 60)
+      result.seconds -= float64(getDaysInMonth(anew.year, curMonth) * OneDay)
   else:  # adding
     if newinterv.months > 12:
       let yrs = quotient(newinterv.months, 12)
@@ -832,7 +832,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
 
     # add number of seconds in current month
     for mth in 1 .. newinterv.months.int:
-      result.seconds += float64(getDaysInMonth(curMonth, anew.year) * 24 * 60 * 60)
+      result.seconds += float64(getDaysInMonth(anew.year, curMonth) * OneDay)
       if curMonth == 12:
         curMonth = 1
         anew.year.inc()
@@ -844,7 +844,7 @@ proc toTimeStamp*(dt: DateTime, ti: TimeInterval): TimeStamp =
     # current month. if e.g. we startet on monthday 31 and ended in a month with only 28 days
     # we have to take the smaller of the two values to adjust the number of seconds.
 
-    result.seconds += float64((min(getDaysInMonth(curMonth, anew.year), dt.day) - 1) * OneDay)
+    result.seconds += float64((min(getDaysInMonth(anew.year, curMonth), dt.day) - 1) * OneDay)
   else:
     # if a number of days was set in the timeinterval by an internal calculation,
     # we don't adjust for the maximal day number in the target month.
@@ -1090,12 +1090,30 @@ proc `-`*(dt: DateTime, td: TimeDelta): DateTime =
   transferOffsetInfo(dt)
 
 
-proc `+`*(dt: DateTime, ti: TimeInterval): DateTime =
+proc `nimPlus`*(dt: DateTime, ti: TimeInterval): DateTime =
   ## adds ``ti`` time to DateTime ``dt``.
   ##
   var ts = toTimeStamp(dt) + toTimeStamp(dt, ti)
   normalizeTimeStamp(ts)
   result = fromTimeStamp(ts)
+  transferOffsetInfo(dt)
+
+
+proc `+`*(dt: DateTime, ti: TimeInterval): DateTime =
+  ## adds ``ti`` to DateTime ``dt``.
+  ##
+  let totalMonths = dt.year.float64 * 12 + dt.month.float64 - 1 + ti.years * 12 + ti.months
+  let year = quotient(totalMonths, 12)
+  let month = modulo(totalMonths, 12) + 1
+  let day = min(getDaysInMonth(year, month), dt.day)
+  let ordinal = float64(toOrdinalFromYMD(year, month, day)) + ti.days
+
+  var seconds = float64(ordinal) * OneDay
+  seconds += (dt.hour.float64 + ti.hours) * 3600.0
+  seconds += (dt.minute.float64 + ti.minutes) * 60.0
+  seconds += (dt.second.float64 + ti.seconds)
+  let microseconds = dt.microsecond.float64 + ti.microseconds
+  result = fromTime(seconds - float64(UnixEpochSeconds) + microseconds / 1e6)
   transferOffsetInfo(dt)
 
 
